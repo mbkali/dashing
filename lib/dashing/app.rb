@@ -46,7 +46,7 @@ else
   set history: {}
 end
 
-%w(javascripts stylesheets fonts images).each do |path|
+%w(javascripts stylesheets fonts images audio).each do |path|
   settings.sprockets.append_path("assets/#{path}")
 end
 
