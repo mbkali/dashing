@@ -162,6 +162,8 @@ def send_event(id, body, target=nil)
     duration =  Rufus::Scheduler.parse_in(future_event['in'] || '10s')
     scheduled_at = Time.now.to_i + duration
     QUEUE[id] = {:scheduled_at => scheduled_at, :data => future_event['data']}
+  else
+    QUEUE.delete(id)
   end
 
   event = format_event(body.to_json, target)
