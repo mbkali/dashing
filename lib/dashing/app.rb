@@ -1,14 +1,32 @@
 require 'sinatra'
 require 'sprockets'
 require 'sinatra/content_for'
-require 'rufus/scheduler'
+require 'rufus-scheduler'
 require 'coffee-script'
 require 'sass'
 require 'json'
 require 'yaml'
 require 'thin'
 
+QUEUE = {}
+
 SCHEDULER = Rufus::Scheduler.new
+
+SCHEDULER.every '5s' do
+  # e.g.
+  # QUEUE["flash"] = {
+  #     "scheduled_at": 1457580797.0,
+  #     "data": {
+  #       "items": []
+  #     }
+  #   }
+
+  ready = QUEUE.select { |key, hash| hash[:scheduled_at] < Time.now.to_i }
+  ready.each { |id, hash|
+    QUEUE.delete(id)
+    send_event(id, hash[:data])
+  }
+end
 
 def development?
   ENV['RACK_ENV'] == 'development'
@@ -136,8 +154,19 @@ end
 def send_event(id, body, target=nil)
   body[:id] = id
   body[:updatedAt] ||= Time.now.to_i
+
+  skip_history = body.delete('skip_history')
+  future_event = body.delete('schedule_event')
+
+  if future_event then
+    duration =  Rufus::Scheduler.parse_in(future_event['in'] || '10s')
+    scheduled_at = Time.now.to_i + duration
+    QUEUE[id] = {:scheduled_at => scheduled_at, :data => future_event['data']}
+  end
+
   event = format_event(body.to_json, target)
-  Sinatra::Application.settings.history[id] = event unless target == 'dashboards'
+
+  Sinatra::Application.settings.history[id] = event unless (target == 'dashboards' || skip_history)
   Sinatra::Application.settings.connections.each { |out| out << event }
 end
 
