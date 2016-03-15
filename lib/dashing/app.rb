@@ -8,6 +8,7 @@ require 'json'
 require 'yaml'
 require 'thin'
 
+MUTEX = Mutex.new
 QUEUE = {}
 
 SCHEDULER = Rufus::Scheduler.new
@@ -21,11 +22,17 @@ SCHEDULER.every '5s' do
   #     }
   #   }
 
-  ready = QUEUE.select { |key, hash| hash[:scheduled_at] < Time.now.to_i }
-  ready.each { |id, hash|
-    QUEUE.delete(id)
-    send_event(id, hash[:data])
-  }
+  fire = []
+
+  MUTEX.synchronize do
+    ready = QUEUE.select { |key, hash| hash[:scheduled_at] < Time.now.to_i }
+    ready.each { |id, hash|
+      QUEUE.delete(id)
+      fire << {:id => id, :data => hash[:data]}
+    }
+  end
+
+  fire.each { |e| send_event(e[:id], e[:data]) }
 end
 
 def development?
@@ -158,12 +165,14 @@ def send_event(id, body, target=nil)
   skip_history = body.delete('skip_history')
   future_event = body.delete('schedule_event')
 
-  if future_event then
-    duration =  Rufus::Scheduler.parse_in(future_event['in'] || '10s')
-    scheduled_at = Time.now.to_i + duration
-    QUEUE[id] = {:scheduled_at => scheduled_at, :data => future_event['data']}
-  else
-    QUEUE.delete(id)
+  MUTEX.synchronize do
+    if future_event then
+      duration =  Rufus::Scheduler.parse_in(future_event['in'] || '10s')
+      scheduled_at = Time.now.to_i + duration
+      QUEUE[id] = {:scheduled_at => scheduled_at, :data => future_event['data']}
+    else
+      QUEUE.delete(id)
+    end
   end
 
   event = format_event(body.to_json, target)
